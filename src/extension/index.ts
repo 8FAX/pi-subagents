@@ -724,6 +724,13 @@ export default function registerSubagentExtension(pi: ExtensionAPI): void {
 	registerWaitTool(pi, state, waitToolConfig.enabled, waitSubscriptionManager, waitToolConfig.defaultTimeoutMs, undefined, supervisorChannel.hasPendingRequests);
 
 	pi.on("agent_end", async (_event, ctx) => {
+		// The run is still active here, so its signal tells a user stop (Esc) apart from a finished or failed run.
+		// Pi skips agent_before_settle after an abort. Background runs keep going, but they must not restart the parent.
+		if (ctx.hasUI && ctx.signal?.aborted) {
+			parentWake.userAborted();
+			const active = [...state.asyncJobs.values()].filter((job) => job.status === "queued" || job.status === "running").length;
+			if (active > 0) ctx.ui.notify(`${active} background subagent ${active === 1 ? "run is" : "runs are"} still active · /subagents-stop to stop ${active === 1 ? "it" : "them"}`, "info");
+		}
 		try {
 			// A headless host may dispose the session as soon as this turn settles, so hand
 			// finished results to Pi now; Pi runs the queued completion turn after agent_end.
