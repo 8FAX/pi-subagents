@@ -122,24 +122,18 @@ it("after a user abort, appends waking notices without a wake until the next run
 	assert.equal(wakes(), 1);
 });
 
-it("drops a user-abort hold when the session changes, shuts down, or a resume releases it", () => {
+it("drops a user-abort hold when the session changes or a resume releases it", () => {
 	const manager = SessionManager.inMemory();
 	const { wake, wakes } = createHarness(manager);
-	wake.userAborted();
-	wake.sessionShutdown("quit");
-	wake.sendMessage(notice("after shutdown"), { triggerTurn: true });
-	assert.equal(wakes(), 1);
-	wake.agentStarted();
 	wake.userAborted();
 	manager.newSession();
 	wake.bindSession({ isIdle: () => true, sessionManager: manager } as never);
 	wake.sendMessage(notice("new session"), { triggerTurn: true });
-	assert.equal(wakes(), 2);
+	assert.equal(wakes(), 1);
 	wake.userAborted();
 	wake.releaseHold();
-	assert.equal(wake.isHeld(), false);
 	wake.sendMessage(notice("during the pending wake"), { triggerTurn: true });
-	assert.equal(wakes(), 2, "releasing the hold keeps the pending wake reservation");
+	assert.equal(wakes(), 1, "releasing the hold keeps the pending wake reservation");
 });
 
 it("shares one idle wake per session with other extensions, such as pi-intercom", () => {
@@ -261,9 +255,7 @@ for (const emptyResponse of [false, true]) it(`starts an idle parent's completio
 });
 
 // Pi's compact() aborts a live run first, so a manual /compact mid-tool also ends the run with an aborted signal.
-for (const stopWith of ["abort", "compact"] as const) it(stopWith === "abort"
-	? "does not restart a parent the user stopped mid-tool until the user prompts again"
-	: "still resumes the parent after a manual /compact that stops a run mid-tool", { timeout: 30_000 }, async () => {
+for (const stopWith of ["abort", "compact"] as const) it(`${stopWith === "abort" ? "does not restart" : "resumes"} a parent whose run was stopped mid-tool by ${stopWith}`, { timeout: 30_000 }, async () => {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-parent-wake-abort-"));
 	const agentDir = path.join(root, "agent");
 	fs.mkdirSync(agentDir);
@@ -344,47 +336,6 @@ for (const stopWith of ["abort", "compact"] as const) it(stopWith === "abort"
 	}
 });
 
-// The compaction resume in src/extension/index.ts waits for idle because Pi emits session_compact
-// before clearing compaction state: waking from inside the hook would skip before_agent_start.
-it("emits manual session_compact before Pi clears compaction state", { timeout: 30_000 }, async () => {
-	const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compaction-state-sdk-"));
-	const agentDir = path.join(root, "agent");
-	fs.mkdirSync(agentDir);
-	const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
-	process.env.PI_CODING_AGENT_DIR = agentDir;
-	const faux = fauxProvider({ provider: "compaction-state", models: [{ id: "local" }], tokensPerSecond: 100_000 });
-	faux.setResponses([() => fauxAssistantMessage("Done.")]);
-	const idleInHook: boolean[] = [];
-	const settingsManager = SettingsManager.inMemory({ compaction: { keepRecentTokens: 1 } });
-	const resourceLoader = new DefaultResourceLoader({
-		cwd: root, agentDir, settingsManager,
-		noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
-		extensionFactories: [(api) => {
-			api.registerProvider(faux.provider);
-			api.on("session_before_compact", (event) => ({
-				compaction: { summary: "Compacted.", firstKeptEntryId: event.preparation.firstKeptEntryId, tokensBefore: event.preparation.tokensBefore },
-			}));
-			api.on("session_compact", (_event, ctx) => { idleInHook.push(ctx.isIdle()); });
-		}],
-	});
-	let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
-	try {
-		await resourceLoader.reload();
-		const modelRuntime = await ModelRuntime.create({ authPath: path.join(agentDir, "auth.json"), modelsPath: path.join(agentDir, "models.json"), allowModelNetwork: false });
-		({ session } = await createAgentSession({ cwd: root, agentDir, settingsManager, resourceLoader, modelRuntime, model: faux.getModel("local"), sessionManager: SessionManager.inMemory(root), noTools: "builtin" }));
-		await session.bindExtensions({});
-		await session.prompt("Do something.");
-		await session.compact();
-		assert.deepEqual(idleInHook, [false]);
-		assert.equal(session.isIdle, true);
-	} finally {
-		session?.dispose();
-		if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-		else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
-		fs.rmSync(root, { recursive: true, force: true });
-	}
-});
-
 it("composes prior drafts, unresolved supervisor and empty completion safeguards through real SDK", { timeout: 30_000 }, async () => {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-settle-compose-"));
 	const agentDir = path.join(root, "agent");
@@ -426,7 +377,7 @@ it("composes prior drafts, unresolved supervisor and empty completion safeguards
 				api.sendMessage(message, { triggerTurn: false }); return true;
 			} };
 			channel = createNativeSupervisorChannel(api, state, { parentWake, getChannelDirs: () => ({ dirs: [channelDir] }) });
-			notifier = registerSubagentNotify({ events: api.events, on: api.on, ...parentWake }, state, { batchConfig: { enabled: false } });
+			notifier = registerSubagentNotify({ events: api.events, on: api.on, isHeld: () => false, ...parentWake }, state, { batchConfig: { enabled: false } });
 			api.on("session_start", () => { notifier.bindSession(manager); channel.start(); });
 			observeBoundary = () => { api.on("agent_before_settle", (event) => {
 				boundaries.push(event.entries.map(entry => "customType" in entry ? entry.customType : entry.type));

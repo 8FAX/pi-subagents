@@ -437,9 +437,10 @@ export default function registerSubagentExtension(pi: ExtensionAPI): void {
 			return { error };
 		});
 	};
+	const activeAsyncJobCount = () => [...state.asyncJobs.values()].filter((job) => job.status === "queued" || job.status === "running").length;
 	const hasResultDeliveryDemand = () => {
 		if (owedResultRunIds.size > 0) return true;
-		if ([...state.asyncJobs.values()].some((job) => job.status === "queued" || job.status === "running")) return true;
+		if (activeAsyncJobCount() > 0) return true;
 		if (state.foregroundControls.size > 0) return true;
 		if (scheduledRunManager.observedCompletionRunIds().size > 0) return true;
 		return missionObserverResultCandidateFiles(DIRS.results).length > 0;
@@ -729,8 +730,8 @@ export default function registerSubagentExtension(pi: ExtensionAPI): void {
 			// Pi skips agent_before_settle after an abort. Background runs keep going, but they must not restart the parent.
 			if (ctx.hasUI && ctx.signal?.aborted) {
 				parentWake.userAborted();
-				const active = [...state.asyncJobs.values()].filter((job) => job.status === "queued" || job.status === "running").length;
-				if (active > 0) ctx.ui.notify(`${active} background subagent ${active === 1 ? "run is" : "runs are"} still active · /subagents-stop to stop ${active === 1 ? "it" : "them"}`, "info");
+				const active = activeAsyncJobCount();
+				if (active > 0) ctx.ui.notify(`${active} background subagent run${active === 1 ? " is" : "s are"} still active · /subagents-stop`, "info");
 			}
 			// A headless host may dispose the session as soon as this turn settles, so hand
 			// finished results to Pi now; Pi runs the queued completion turn after agent_end.
@@ -1050,11 +1051,7 @@ export default function registerSubagentExtension(pi: ExtensionAPI): void {
 	};
 
 	let compactionResumeTimer: ReturnType<typeof setTimeout> | undefined;
-	const hasActiveAsyncWork = () => [...state.asyncJobs.values()].some((job) => job.status === "queued" || job.status === "running");
-	const cancelCompactionResume = () => {
-		if (compactionResumeTimer) clearTimeout(compactionResumeTimer);
-		compactionResumeTimer = undefined;
-	};
+	const cancelCompactionResume = () => { clearTimeout(compactionResumeTimer); compactionResumeTimer = undefined; };
 
 	pi.on("agent_start", () => {
 		cancelCompactionResume();
@@ -1077,16 +1074,15 @@ export default function registerSubagentExtension(pi: ExtensionAPI): void {
 
 	// Pi emits session_compact before it clears its compaction state, and a parent that is still
 	// compacting can only be woken without before_agent_start (earendil-works/pi#5581). Wait for the
-	// parent to go idle so the resume takes parentWake's prompt() path. A run that starts first resumes it.
+	// parent to go idle so the resume takes parentWake's prompt() path. A run that starts first cancels the pending resume.
 	pi.on("session_compact", (event) => {
 		if (event.reason !== "manual") return;
-		if (!hasActiveAsyncWork() || !withLastUiContext(() => true)) return;
+		if (activeAsyncJobCount() === 0 || !withLastUiContext(() => true)) return;
 		cancelCompactionResume();
 		const sessionId = state.currentSessionId;
 		const deadline = Date.now() + COMPACTION_RESUME_DEADLINE_MS;
 		const resumeWhenIdle = () => {
-			compactionResumeTimer = undefined;
-			if (state.currentSessionId !== sessionId || !hasActiveAsyncWork()) return;
+			if (state.currentSessionId !== sessionId || activeAsyncJobCount() === 0) return;
 			const idle = withLastUiContext((ctx) => ctx.isIdle());
 			if (idle === undefined) return;
 			if (!idle) {

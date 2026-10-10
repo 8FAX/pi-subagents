@@ -584,6 +584,7 @@ describe("result watcher", () => {
 			state.currentSessionId = "session-current";
 			const pi = {
 				events: { on: () => () => {}, emit(event: string) { if (event === SUBAGENT_ASYNC_COMPLETE_EVENT) observations += 1; } },
+				isHeld: () => false,
 				sendMessage(message: { content?: string }) { sent.push(message.content ?? ""); },
 			};
 			const notifier = registerSubagentNotify(pi as never, state, { batchConfig: { enabled: false } });

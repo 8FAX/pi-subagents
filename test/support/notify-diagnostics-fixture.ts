@@ -8,7 +8,7 @@ let failSend = false;
 const state = { currentSessionId: "session-a", completionOwnerId: "owner-a" };
 const sent: Array<{ message: Record<string, unknown>; options: unknown }> = [];
 const pi = {
-	events: { on: () => () => {} },
+	events: { on: () => () => {} }, isHeld: () => false,
 	sendMessage(message: Record<string, unknown>, options: unknown) {
 		if (failSend) throw new Error("PRIVATE_ERROR_CREDENTIAL");
 		sent.push({ message, options });

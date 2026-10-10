@@ -579,18 +579,16 @@ export function watchAsyncControlInbox(
 			console.error("Control inbox error reporter failed:", reportError);
 		}
 	};
-	// A scan that keeps failing the same way (a Windows EPERM wrote gigabytes of identical stack traces)
-	// is reported once, then as one count per interval, until a check scans cleanly.
+	// A scan failing the same way (a Windows EPERM wrote gigabytes of identical traces) is reported once, then one count per interval, until a clean scan.
 	const repeatedScanErrors = new Map<string, { suppressed: number; since: number }>();
 	let scanFailed = false;
 	const reportScan = (error: unknown): void => {
 		scanFailed = true;
 		const text = error instanceof Error ? error.message : String(error);
-		const key = `${(error as NodeJS.ErrnoException | undefined)?.code ?? ""}\0${text}`;
 		const now = (opts.now ?? Date.now)();
-		const repeated = repeatedScanErrors.get(key);
+		const repeated = repeatedScanErrors.get(text);
 		if (!repeated) {
-			repeatedScanErrors.set(key, { suppressed: 0, since: now });
+			repeatedScanErrors.set(text, { suppressed: 0, since: now });
 			report(error, "scan");
 			return;
 		}

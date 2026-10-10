@@ -35,6 +35,7 @@ it("keeps reload wakes scoped to one session manager and clears them on quit", a
 		const messages: any[] = [];
 		const pi = {
 			events: createEventBus(),
+			isHeld: () => false,
 			sendMessage(message: unknown) { messages.push(message); },
 		} as unknown as Parameters<typeof registerSubagentNotify>[0];
 		const notifier = registerSubagentNotify(pi, { currentSessionId: sessionId, completionOwnerId: COMPLETION_OWNER_ID }, { batchConfig: { enabled: false } });
@@ -75,6 +76,7 @@ it("keeps wakes accepted before the first session bind", async () => {
 	const messages: any[] = [];
 	const pi = {
 		events: createEventBus(),
+		isHeld: () => false,
 		sendMessage(message: unknown) { messages.push(message); },
 	} as unknown as Parameters<typeof registerSubagentNotify>[0];
 	const first = registerSubagentNotify(pi, { currentSessionId: sessionId, completionOwnerId: COMPLETION_OWNER_ID }, { batchConfig: { enabled: false } });
@@ -99,7 +101,7 @@ it("does not wait for message_start on a completion appended to an idle parent",
 		sendUserMessage: (...args: unknown[]) => { calls.push(args); },
 	} as never);
 	parentWake.bindSession({ isIdle: () => true, sessionManager: owner } as never);
-	const notifier = registerSubagentNotify({ events: createEventBus(), sendMessage: parentWake.sendMessage }, { currentSessionId: sessionId, completionOwnerId: COMPLETION_OWNER_ID }, { batchConfig: { enabled: false } });
+	const notifier = registerSubagentNotify({ events: createEventBus(), sendMessage: parentWake.sendMessage, isHeld: parentWake.isHeld }, { currentSessionId: sessionId, completionOwnerId: COMPLETION_OWNER_ID }, { batchConfig: { enabled: false } });
 	notifier.bindSession(owner);
 	await notifier.deliver({ id: "idle-wake-result", sessionId, completionOwnerId: COMPLETION_OWNER_ID, success: false, summary: "Needs attention" });
 	assert.deepEqual(calls.map((call) => call[1]), [{ triggerTurn: false }, { deliverAs: "steer" }]);
@@ -175,7 +177,7 @@ function createPi(currentSessionId = "session-1", registerOptions: RegisterSubag
 	const events = createEventBus();
 	const sent: Array<{ message: unknown; options: unknown }> = [];
 	const pi = {
-		events,
+		events, isHeld: () => false,
 		sendMessage(message: unknown, options: unknown) {
 			sent.push({ message, options });
 		},
@@ -196,7 +198,7 @@ function createBatchingPi(clock: ReturnType<typeof createFakeClock>, currentSess
 	const events = createEventBus();
 	const sent: Array<{ message: unknown; options: unknown }> = [];
 	const pi = {
-		events,
+		events, isHeld: () => false,
 		sendMessage(message: unknown, options: unknown) {
 			sent.push({ message, options });
 		},
@@ -264,7 +266,7 @@ describe("registerSubagentNotify", () => {
 		const events = createEventBus();
 		const sent: Array<{ options: unknown }> = [];
 		const registry = createCompletionSendRegistry();
-		const pi = { events, sendMessage(_message: unknown, options: unknown) { sent.push({ options }); } };
+		const pi = { events, isHeld: () => false, sendMessage(_message: unknown, options: unknown) { sent.push({ options }); } };
 		const state = { currentSessionId: "session-a", completionOwnerId: COMPLETION_OWNER_ID };
 		const options = { batchConfig: { enabled: false }, sendRegistry: registry } as const;
 		const first = registerSubagentNotify(pi as never, state, options);
@@ -283,7 +285,7 @@ describe("registerSubagentNotify", () => {
 		const events = createEventBus();
 		const sent: unknown[] = [];
 		const registry = createCompletionSendRegistry();
-		const pi = { events, sendMessage(message: unknown) { sent.push(message); } };
+		const pi = { events, isHeld: () => false, sendMessage(message: unknown) { sent.push(message); } };
 		const state = { currentSessionId: "session-a", completionOwnerId: COMPLETION_OWNER_ID };
 		const options = { batchConfig: { enabled: false }, sendRegistry: registry } as const;
 		const first = registerSubagentNotify(pi as never, state, options);
@@ -302,7 +304,7 @@ describe("registerSubagentNotify", () => {
 		const registry = createCompletionSendRegistry();
 		let attempts = 0;
 		let accepted = 0;
-		const pi = { events, sendMessage() {
+		const pi = { events, isHeld: () => false, sendMessage() {
 			attempts += 1;
 			if (attempts === 1) throw new Error("runtime inactive");
 			accepted += 1;
@@ -327,7 +329,7 @@ describe("registerSubagentNotify", () => {
 		let reentrant: Promise<boolean> | undefined;
 		let sends = 0;
 		let second!: ReturnType<typeof registerSubagentNotify>;
-		const pi = { events: createEventBus(), sendMessage() {
+		const pi = { events: createEventBus(), isHeld: () => false, sendMessage() {
 			sends += 1;
 			reentrant = second.deliver(result);
 		} };
@@ -348,7 +350,7 @@ describe("registerSubagentNotify", () => {
 	it("keeps identical completion ids isolated by session", async () => {
 		const registry = createCompletionSendRegistry();
 		const sent: unknown[] = [];
-		const pi = { events: createEventBus(), sendMessage(message: unknown) { sent.push(message); } };
+		const pi = { events: createEventBus(), isHeld: () => false, sendMessage(message: unknown) { sent.push(message); } };
 		const options = { batchConfig: { enabled: false }, sendRegistry: registry } as const;
 		const first = registerSubagentNotify(pi as never, { currentSessionId: "session-a", completionOwnerId: COMPLETION_OWNER_ID }, options);
 		const second = registerSubagentNotify(pi as never, { currentSessionId: "session-b", completionOwnerId: COMPLETION_OWNER_ID }, options);
@@ -460,7 +462,7 @@ describe("registerSubagentNotify", () => {
 	it("accepts only explicitly claimed predecessor-session completions", async () => {
 		const events = createEventBus();
 		const sent: unknown[] = [];
-		const pi = { events, sendMessage(message: unknown) { sent.push(message); } };
+		const pi = { events, isHeld: () => false, sendMessage(message: unknown) { sent.push(message); } };
 		const state = { currentSessionId: "session-old" as string | null, completionOwnerId: COMPLETION_OWNER_ID };
 		const ownership = createResultDeliveryOwnership(state);
 		assert.equal(ownership.claimPredecessor("session-old", "session-old"), true);
@@ -480,7 +482,7 @@ describe("registerSubagentNotify", () => {
 		const clock = createFakeClock();
 		const events = createEventBus();
 		const sent: unknown[] = [];
-		const pi = { events, sendMessage(message: unknown) { sent.push(message); } };
+		const pi = { events, isHeld: () => false, sendMessage(message: unknown) { sent.push(message); } };
 		const state = { currentSessionId: "session-a" as string | null, completionOwnerId: COMPLETION_OWNER_ID };
 		const notifier = registerSubagentNotify(pi as never, state, {
 			batchConfig: { enabled: true, debounceMs: 150, maxWaitMs: 1000, stragglerDebounceMs: 75, stragglerMaxWaitMs: 400, stragglerWindowMs: 2000 },
@@ -1116,7 +1118,7 @@ describe("completion formatting helpers", () => {
 	});
 
 	it("reports false when Pi rejects sendMessage synchronously", async () => {
-		const pi = { events: createEventBus(), sendMessage() { throw new Error("runtime inactive"); } };
+		const pi = { events: createEventBus(), isHeld: () => false, sendMessage() { throw new Error("runtime inactive"); } };
 		const notifier = registerSubagentNotify(pi as never, { currentSessionId: "session-a" }, { batchConfig: { enabled: false } });
 		assert.equal(await notifier.deliver(completionResult({ id: "direct-rejected" })), false);
 		notifier.dispose();

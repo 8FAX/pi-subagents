@@ -638,13 +638,13 @@ function notifyRunDetails({ resultPreview: _preview, childOutputs, ...run }: Sub
 }
 
 const COMPLETION_ACTION = "Read the saved results above and resume the already-authorized parent task, or report completion. If approval is required, explicitly ask the user. Do not silently yield, rerun completed work, or infer new authorization.";
-const HELD_COMPLETION_ACTION = "The user stopped the parent turn. Report these results when the user next prompts. Do not resume the stopped task unless the user asks.";
-function sendCompletion(pi: Pick<ParentWake, "sendMessage"> & Partial<Pick<ParentWake, "isHeld">>, items: PendingCompletion[], unstartedWakes: string[], unansweredCompletions: Map<string, { reminded: boolean }>, updateSettleSubscription: () => void): boolean {
+const HELD_COMPLETION_ACTION = "The user stopped the parent turn. Report these results at the user's next prompt and do not resume the stopped task unless asked.";
+function sendCompletion(pi: Pick<ParentWake, "sendMessage" | "isHeld">, items: PendingCompletion[], unstartedWakes: string[], unansweredCompletions: Map<string, { reminded: boolean }>, updateSettleSubscription: () => void): boolean {
 	if (items.length === 0) return true;
 	const details = items.map((item) => item.details);
 	const triggerTurn = items.some((item) => item.triggerTurn);
 	const formatted = details.length === 1 ? formatSingleCompletion(details[0]!) : formatGroupedCompletion(details);
-	const held = pi.isHeld?.() === true;
+	const held = pi.isHeld();
 	const content = triggerTurn ? `${formatted}\n\nParent action: ${held ? HELD_COMPLETION_ACTION : COMPLETION_ACTION}` : formatted;
 	const display = details.some((detail) => detail.source === "foreground" || detail.status !== "completed" || detail.scheduleOrigin !== undefined);
 	// A held notice starts no wake, so the silent-wake reminder must not later tell the model to resume the stopped task.
@@ -838,7 +838,7 @@ export function buildCompletionDetails(result: CompletionNotification): Subagent
 }
 
 export default function registerSubagentNotify(
-	pi: Pick<ExtensionAPI, "events"> & Partial<Pick<ExtensionAPI, "on">> & Pick<ParentWake, "sendMessage"> & Partial<Pick<ParentWake, "isHeld">>,
+	pi: Pick<ExtensionAPI, "events"> & Partial<Pick<ExtensionAPI, "on">> & Pick<ParentWake, "sendMessage" | "isHeld">,
 	state: Pick<SubagentState, "currentSessionId" | "completionOwnerId">,
 	options: RegisterSubagentNotifyOptions = {},
 ): CompletionNotifier {

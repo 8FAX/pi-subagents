@@ -101,21 +101,6 @@ interface OutputInstructionCapabilities {
 	mcpDirectTools?: string[];
 }
 
-function formatOutputPathInstruction(outputPath: string, capabilities?: OutputInstructionCapabilities): string {
-	const delivery = !capabilities || hasOutputWriteCapability(capabilities.tools, capabilities.mcpDirectTools)
-		? `Write your findings to exactly this path: ${outputPath}`
-		: [
-			"Return the complete artifact in your final response.",
-			`The runtime will persist it to exactly this path: ${outputPath}`,
-			"Do not call contact_supervisor merely because no write-capable tool is available.",
-		].join("\n");
-	return [
-		delivery,
-		"This path is authoritative for this run.",
-		"Ignore any other output filename or output path mentioned elsewhere, including output destinations in the base agent prompt, system prompt, or task instructions.",
-	].join("\n");
-}
-
 export function requestedOutputPathFromTask(task: string): string | undefined {
 	for (const line of task.split(/\r?\n/).reverse()) {
 		const match = line.match(/^\s*(?:Write your findings to(?: exactly this path)?:|The runtime will persist it to exactly this path:)\s*(.+?)\s*$/i);
@@ -135,7 +120,19 @@ export function outputPathMappingFromTask(task: string, savedPath: string | unde
 
 export function injectSingleOutputInstruction(task: string, outputPath: string | undefined, capabilities?: OutputInstructionCapabilities): string {
 	if (!outputPath) return task;
-	return `${task}\n\n---\n**Output:**\n${formatOutputPathInstruction(outputPath, capabilities)}`;
+	const delivery = !capabilities || hasOutputWriteCapability(capabilities.tools, capabilities.mcpDirectTools)
+		? `Write your findings to exactly this path: ${outputPath}`
+		: [
+			"Return the complete artifact in your final response.",
+			`The runtime will persist it to exactly this path: ${outputPath}`,
+			"Do not call contact_supervisor merely because no write-capable tool is available.",
+		].join("\n");
+	return [
+		`${task}\n\n---\n**Output:**`,
+		delivery,
+		"This path is authoritative for this run.",
+		"Ignore any other output filename or output path mentioned elsewhere, including output destinations in the system prompt or the task instructions.",
+	].join("\n");
 }
 
 function countLines(text: string): number {

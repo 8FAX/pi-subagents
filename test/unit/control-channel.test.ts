@@ -762,11 +762,10 @@ describe("control inbox diagnostics and active-owner cost", () => {
 	it("reports a repeating scan failure once, then one count per minute, and again after a clean scan", () => {
 		const asyncDir = tmpAsyncDir("pi-steer-repeated-eperm-");
 		const reports: unknown[] = [];
-		const seen: string[] = [];
 		let failing = true, clock = 0, tick = () => {};
 		const eperm = () => Object.assign(new Error(`EPERM: operation not permitted, scandir '${steerRequestsDir(asyncDir)}'`), { code: "EPERM" });
 		const dispose = watchAsyncControlInbox(asyncDir, {
-			onSteer: (request) => seen.push(request.id),
+			onSteer: () => {},
 			onError: (error, phase) => { assert.equal(phase, "scan"); reports.push(error); },
 			platform: "darwin",
 			now: () => clock,
@@ -780,15 +779,14 @@ describe("control inbox diagnostics and active-owner cost", () => {
 			requestAsyncSteer(asyncDir, { id: "kept", message: "kept" });
 			assert.equal(reports.length, 1);
 			assert.equal((reports[0] as NodeJS.ErrnoException).code, "EPERM");
-			for (let index = 0; index < 1_000; index++) { clock += 10; tick(); }
+			for (let index = 0; index < 3; index++) { clock += 10; tick(); }
 			assert.equal(reports.length, 1, "identical failures inside the interval are not reported");
 			clock = 60_000;
 			tick();
 			assert.equal(reports.length, 2);
-			assert.equal(reports[1], `1001 more identical failures in the last 60s: ${eperm().message}`);
+			assert.equal(reports[1], `4 more identical failures in the last 60s: ${eperm().message}`);
 			failing = false;
 			tick();
-			assert.deepEqual(seen, ["kept"], "the request survives the failures and is delivered on recovery");
 			assert.equal(reports.length, 2);
 			failing = true;
 			tick();

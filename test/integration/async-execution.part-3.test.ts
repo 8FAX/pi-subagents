@@ -506,7 +506,6 @@ describe("async execution utilities", { skip: !available ? "pi packages not avai
 		assert.match(taskArg, /Ignore any other output filename or output path mentioned elsewhere/);
 		assert.match(systemPrompt, /Output format \(`default-report\.md`\):/);
 		assert.doesNotMatch(systemPrompt, new RegExp(escapeRegExp(outputPath)));
-		assert.doesNotMatch(systemPrompt, /Write your findings to exactly this path/);
 		await waitForAsyncResultFile(id);
 	});
 

@@ -202,12 +202,10 @@ test("names the permitted values for an invalid enum or const field", async () =
 	const message = await invalidMessage({
 		type: "object",
 		properties: {
-			outcome: { type: "string", enum: ["applied", "blocked"] },
+			outcome: { enum: ["applied", "blocked"] },
 			level: { enum: Array.from({ length: 25 }, (_, index) => index) },
 			kind: { const: "report" },
 		},
-		required: ["outcome"],
-		additionalProperties: false,
 	}, { outcome: "fixed", level: 99, kind: "note" });
 
 	assert.equal(message, [

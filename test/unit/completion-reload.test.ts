@@ -7,7 +7,7 @@ function harness(manager: { getSessionId(): string }, appended = false) {
 	let beforeSettle: any;
 	const sent: any[] = [];
 	const notifier = registerNotify({
-		events: { on: () => () => {} },
+		events: { on: () => () => {} }, isHeld: () => false,
 		on(_name: string, handler: any) { beforeSettle = handler; return () => { beforeSettle = undefined; }; },
 		sendMessage(message: any) { sent.push(message); return appended; },
 	} as never, { currentSessionId: manager.getSessionId(), completionOwnerId: "owner" }, { batchConfig: { enabled: false } });

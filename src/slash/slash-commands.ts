@@ -172,7 +172,7 @@ type StopSelectorTarget = {
 	actionLabel: string;
 };
 
-type StopAllTarget = { kind: "all"; ids: string[]; label: string; detail: string; actionLabel: string };
+type StopAllTarget = Omit<StopSelectorTarget, "kind" | "id"> & { kind: "all"; ids: string[] };
 type StopPickerTarget = StopSelectorTarget | StopAllTarget;
 type StopSelectorResult = { confirmed: boolean; target?: StopPickerTarget };
 
@@ -232,11 +232,10 @@ function stopFallbackText(targets: StopSelectorTarget[]): string {
 	return lines.join("\n");
 }
 
-// Two or more async runs get a first row that stops all of them; schedules are left alone.
 function stopPickerTargets(targets: StopSelectorTarget[]): StopPickerTarget[] {
 	const ids = targets.filter((target) => target.kind === "async").map((target) => target.id);
 	if (ids.length < 2) return targets;
-	return [{ kind: "all", ids, label: `${ids.length} current-session async runs`, detail: ids.join(", "), actionLabel: "stop all" }, ...targets];
+	return [{ kind: "all", ids, label: `${ids.length} async runs`, detail: ids.join(", "), actionLabel: "stop all" }, ...targets];
 }
 
 function selectForegroundDetachControl(state: SubagentState, requested: string) {
@@ -313,9 +312,8 @@ class SubagentsStopSelector implements Component {
 			const target = this.targets[index]!;
 			const selected = index === this.selected;
 			const marker = selected ? "›" : " ";
-				const actionLabel = target.actionLabel;
-			const action = target.kind === "scheduled" ? this.theme.fg("warning", actionLabel) : this.theme.fg("accent", actionLabel);
-			const labelWidth = Math.max(0, contentWidth - marker.length - actionLabel.length - 2);
+			const action = target.kind === "scheduled" ? this.theme.fg("warning", target.actionLabel) : this.theme.fg("accent", target.actionLabel);
+			const labelWidth = Math.max(0, contentWidth - marker.length - target.actionLabel.length - 2);
 			lines.push(`${marker} ${action} ${target.label.slice(0, labelWidth)}`);
 			if (selected) lines.push(this.theme.fg("dim", `  ${target.detail}`.slice(0, contentWidth)));
 		}
@@ -323,9 +321,8 @@ class SubagentsStopSelector implements Component {
 		lines.push("");
 		if (this.confirming) {
 			const target = this.targets[this.selected]!;
-			lines.push(this.theme.fg("warning", target.kind === "all" ? `Confirm: stop all ${target.ids.length} async runs?` : `Confirm: ${target.actionLabel} ${target.id}?`));
-			if (target.kind === "async") lines.push(this.theme.fg("dim", "Stop ends this run; use interrupt for a resumable pause."));
-			if (target.kind === "all") lines.push(this.theme.fg("dim", "Stop ends these runs; scheduled runs are not paused."));
+			lines.push(this.theme.fg("warning", `Confirm: ${target.actionLabel} ${target.kind === "all" ? target.label : target.id}?`));
+			if (target.kind !== "scheduled") lines.push(this.theme.fg("dim", target.kind === "all" ? "Stop ends these runs; scheduled runs are not paused." : "Stop ends this run; use interrupt for a resumable pause."));
 			lines.push(this.theme.fg("dim", "Enter/Y confirms · N returns · Esc cancels"));
 		} else {
 			lines.push(this.theme.fg("dim", "↑↓/jk select · Enter confirm · Esc cancel"));

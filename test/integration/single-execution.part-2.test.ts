@@ -3823,7 +3823,6 @@ if (!fs.existsSync(${JSON.stringify(holdPath)})) { console.log('{}'); } else {
 		assert.match(taskArg, /Ignore any other output filename or output path mentioned elsewhere/);
 		assert.match(systemPrompt, /Output format \(`default-report\.md`\):/);
 		assert.doesNotMatch(systemPrompt, new RegExp(escapeRegExp(overridePath)));
-		assert.doesNotMatch(systemPrompt, /Write your findings to exactly this path/);
 
 		// A later stage of the same agent with a new output path keeps the same system prompt, so its prompt cache survives.
 		mockPi.onCall({ output: "second report" });

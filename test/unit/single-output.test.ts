@@ -89,20 +89,14 @@ describe("injectSingleOutputInstruction", () => {
 		assert.match(output, /Ignore any other output filename or output path mentioned elsewhere/);
 	});
 
-	it("tells read-only agents to return the artifact for runtime persistence", () => {
-		const output = injectSingleOutputInstruction("Analyze this", "/tmp/report.md", { tools: ["read", "grep", "find", "ls"] });
-		assert.match(output, /Return the complete artifact in your final response\./);
-		assert.match(output, /runtime will persist it to exactly this path: \/tmp\/report\.md/);
-		assert.match(output, /Do not call contact_supervisor merely because no write-capable tool is available\./);
-		assert.doesNotMatch(output, /Write your findings to exactly this path/);
-	});
-
-	it("treats the bundled reviewer profile as read-only in task instructions", () => {
-		const capabilities = { tools: ["read", "grep", "find", "ls", "watchdog_diff", "contact_supervisor"] };
-		const output = injectSingleOutputInstruction("Review this", "/tmp/review.md", capabilities);
-		assert.match(output, /Return the complete artifact in your final response\./);
-		assert.match(output, /runtime will persist it to exactly this path: \/tmp\/review\.md/);
-		assert.doesNotMatch(output, /Write your findings to exactly this path/);
+	it("tells read-only agents, including the bundled reviewer profile, to return the artifact for runtime persistence", () => {
+		for (const tools of [["read", "grep", "find", "ls"], ["read", "grep", "find", "ls", "watchdog_diff", "contact_supervisor"]]) {
+			const output = injectSingleOutputInstruction("Analyze this", "/tmp/report.md", { tools });
+			assert.match(output, /Return the complete artifact in your final response\./);
+			assert.match(output, /runtime will persist it to exactly this path: \/tmp\/report\.md/);
+			assert.match(output, /Do not call contact_supervisor merely because no write-capable tool is available\./);
+			assert.doesNotMatch(output, /Write your findings to exactly this path/);
+		}
 	});
 });
 

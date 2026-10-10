@@ -326,11 +326,10 @@ function formatValidationError(error: JsonSchemaValidationError): string[] {
 	if (error.keyword === "required" && error.params?.requiredProperties?.length) {
 		return error.params.requiredProperties.map((property) => `${pathText === "root" ? property : `${pathText}.${property}`}: is required`);
 	}
-	if (error.keyword === "enum" && Array.isArray(error.params?.allowedValues)) {
+	if (error.keyword === "enum" && error.params?.allowedValues?.length) {
 		const values = error.params.allowedValues;
-		const listed = values.slice(0, MAX_LISTED_ALLOWED_VALUES).map((value) => JSON.stringify(value)).join(", ");
-		const more = values.length > MAX_LISTED_ALLOWED_VALUES ? `, and ${values.length - MAX_LISTED_ALLOWED_VALUES} more` : "";
-		return [`${pathText}: must be one of ${listed}${more}`];
+		const extra = values.length - MAX_LISTED_ALLOWED_VALUES;
+		return [`${pathText}: must be one of ${values.slice(0, MAX_LISTED_ALLOWED_VALUES).map((value) => JSON.stringify(value)).join(", ")}${extra > 0 ? `, and ${extra} more` : ""}`];
 	}
 	if (error.keyword === "const" && error.params && "allowedValue" in error.params) {
 		return [`${pathText}: must be ${JSON.stringify(error.params.allowedValue)}`];
