@@ -644,11 +644,14 @@ function sendCompletion(pi: Pick<ParentWake, "sendMessage"> & Partial<Pick<Paren
 	const details = items.map((item) => item.details);
 	const triggerTurn = items.some((item) => item.triggerTurn);
 	const formatted = details.length === 1 ? formatSingleCompletion(details[0]!) : formatGroupedCompletion(details);
-	const content = triggerTurn ? `${formatted}\n\nParent action: ${pi.isHeld?.() ? HELD_COMPLETION_ACTION : COMPLETION_ACTION}` : formatted;
+	const held = pi.isHeld?.() === true;
+	const content = triggerTurn ? `${formatted}\n\nParent action: ${held ? HELD_COMPLETION_ACTION : COMPLETION_ACTION}` : formatted;
 	const display = details.some((detail) => detail.source === "foreground" || detail.status !== "completed" || detail.scheduleOrigin !== undefined);
+	// A held notice starts no wake, so the silent-wake reminder must not later tell the model to resume the stopped task.
+	const tracked = triggerTurn && !held;
 	// Pi can queue an accepted wake behind the current turn or past agent_settled.
 	// Recorded before sending in case Pi starts the message synchronously.
-	if (triggerTurn) {
+	if (tracked) {
 		unstartedWakes.push(content);
 		unansweredCompletions.set(content, { reminded: false });
 		updateSettleSubscription();
@@ -665,10 +668,10 @@ function sendCompletion(pi: Pick<ParentWake, "sendMessage"> & Partial<Pick<Paren
 			{ triggerTurn },
 		);
 		// An idle parent's appended notice gets no message_start; its wake prompt holds liveness instead.
-		if (appended) unstartedWakes.splice(unstartedWakes.lastIndexOf(content), 1);
+		if (appended && tracked) unstartedWakes.splice(unstartedWakes.lastIndexOf(content), 1);
 		return true;
 	} catch {
-		if (triggerTurn) {
+		if (tracked) {
 			unstartedWakes.splice(unstartedWakes.lastIndexOf(content), 1);
 			unansweredCompletions.delete(content);
 			updateSettleSubscription();
