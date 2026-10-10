@@ -28,6 +28,10 @@ export interface ParentWake {
 	agentStarted(): void;
 	/** The user stopped the parent run: hold wakes until the next run starts. */
 	userAborted(): void;
+	/** A deliberate resume (manual compaction) drops the hold without touching the shared wake reservation. */
+	releaseHold(): void;
+	/** True while a user abort holds wakes. */
+	isHeld(): boolean;
 	sessionShutdown(reason: string | undefined): void;
 }
 
@@ -86,6 +90,10 @@ export function createParentWake(pi: Pick<ExtensionAPI, "sendMessage" | "sendUse
 		userAborted() {
 			held = true;
 		},
+		releaseHold() {
+			held = false;
+		},
+		isHeld: () => held,
 		sessionShutdown(reason) {
 			if (reason !== "reload") reservation().sentAt = undefined;
 			held = false;
