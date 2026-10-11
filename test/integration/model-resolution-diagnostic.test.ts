@@ -86,10 +86,10 @@ describe("child model resolution diagnostic", () => {
 		assert.equal(result.usage.turns, 0);
 		assert.deepEqual(result.messages, []);
 		assert.ok(result.error?.startsWith(MODEL_NOT_FOUND), `core error must stay first, got: ${result.error}`);
-		assert.match(result.error ?? "", /Agent 'provider-model-worker' ran as a foreground child, which never loads the parent's ambient extensions but inherits the providers they registered/);
+		assert.match(result.error ?? "", /Agent 'provider-model-worker' ran as a foreground child, which never loads the parent's ambient extensions\. It inherits the providers they registered, but not virtual models/);
 		assert.match(result.error ?? "", /If 'pengepul\/commandcode\/deepseek\/deepseek-v4\.1-flash' is served by a provider extension, check the parent's `\/model` list and the child extension diagnostics/);
 		assert.doesNotMatch(result.error ?? "", /`async: true`/);
-		assert.match(result.error ?? "", /load the extension for this child with `subagentOnlyExtensions` or `extensions` in the agent frontmatter/);
+		assert.match(result.error ?? "", /Load the extension for this child with `subagentOnlyExtensions` or `extensions` in the agent frontmatter/);
 	});
 
 	it("tells a foreground child that the capability ceiling denied the extension, not the frontmatter", async () => {

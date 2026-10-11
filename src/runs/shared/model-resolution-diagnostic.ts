@@ -41,11 +41,13 @@ function denyExtensionsClause(diagnostic: ChildModelResolutionDiagnostic): strin
 
 /**
  * Explain a child model that did not resolve because the extension serving its
- * provider never loaded: a foreground child never loads the parent's ambient
- * extensions, an explicit `extensions` list keeps a background child from
- * loading them, and a capability ceiling denies extensions to both. The caller
- * keeps the core error intact and appends this explanation, so a genuinely
- * unknown model id still reads as one.
+ * provider, or registering it as a virtual model, never loaded: a foreground
+ * child never loads the parent's ambient extensions, an explicit `extensions`
+ * list keeps a background child from loading them, and a capability ceiling
+ * denies extensions to both. A foreground child inherits the parent's
+ * providers but not its virtual models, so only the loaded extension can
+ * register one. The caller keeps the core error intact and appends this
+ * explanation, so a genuinely unknown model id still reads as one.
  */
 export function formatChildModelResolutionDiagnostic(diagnostic: ChildModelResolutionDiagnostic): string {
 	const subject = diagnostic.agent ? `Agent '${diagnostic.agent}'` : "Subagent";
@@ -54,24 +56,25 @@ export function formatChildModelResolutionDiagnostic(diagnostic: ChildModelResol
 		return (diagnostic.host === "parent"
 			? [
 				`${subject} ran as a foreground child, which never loads the parent's ambient extensions.`,
-				`${denyExtensionsClause(diagnostic)}, so if ${model} is served by a provider extension, that extension cannot load for this child: \`async: true\` does not help either, and listed \`subagentOnlyExtensions\` or \`extensions\` entries are suppressed.`,
+				`${denyExtensionsClause(diagnostic)}, so if ${model} is served by a provider extension or is an extension-registered virtual model, that extension cannot load for this child: \`async: true\` does not help either, and listed \`subagentOnlyExtensions\` or \`extensions\` entries are suppressed.`,
 				"Relax the capability ceiling to allow extensions, or use a model that the parent's model registry already resolves.",
 			]
 			: [
 				`${subject} ran as a background child without the ambient extensions.`,
-				`${denyExtensionsClause(diagnostic)}, so if ${model} is served by a provider extension, that extension cannot load for this child: listed \`subagentOnlyExtensions\` or \`extensions\` entries are suppressed, and leaving \`extensions\` unset does not enable ambient loading.`,
+				`${denyExtensionsClause(diagnostic)}, so if ${model} is served by a provider extension or is an extension-registered virtual model, that extension cannot load for this child: listed \`subagentOnlyExtensions\` or \`extensions\` entries are suppressed, and leaving \`extensions\` unset does not enable ambient loading.`,
 				"Relax the capability ceiling to allow extensions, or use a model that the child's model registry already resolves.",
 			]).join("\n");
 	}
 	if (diagnostic.host === "parent") {
 		return [
-			`${subject} ran as a foreground child, which never loads the parent's ambient extensions but inherits the providers they registered.`,
-			`If ${model} is served by a provider extension, check the parent's \`/model\` list and the child extension diagnostics, or load the extension for this child with \`subagentOnlyExtensions\` or \`extensions\` in the agent frontmatter.`,
+			`${subject} ran as a foreground child, which never loads the parent's ambient extensions. It inherits the providers they registered, but not virtual models registered with \`pi.registerVirtualModel()\`.`,
+			`If ${model} is served by a provider extension, check the parent's \`/model\` list and the child extension diagnostics. If it is an extension-registered virtual model, the extension that registers it must load in this child.`,
+			`Load the extension for this child with \`subagentOnlyExtensions\` or \`extensions\` in the agent frontmatter, or register it from the host with \`registerRequiredChildExtensions\` so it loads for every launch.`,
 		].join("\n");
 	}
 	return [
 		`${subject} ran as a background child without the ambient extensions.`,
-		`If ${model} is served by a provider extension, that extension is not loaded for this child: list it in \`subagentOnlyExtensions\` or \`extensions\` in the agent frontmatter, or leave \`extensions\` unset so the child loads the ambient extensions.`,
+		`If ${model} is served by a provider extension or is an extension-registered virtual model, that extension is not loaded for this child: list it in \`subagentOnlyExtensions\` or \`extensions\` in the agent frontmatter, leave \`extensions\` unset so the child loads the ambient extensions, or register it from the host with \`registerRequiredChildExtensions\` so it loads for every launch.`,
 	].join("\n");
 }
 
