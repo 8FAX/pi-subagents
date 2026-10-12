@@ -240,8 +240,16 @@ function trackPromiseCombinator(items, createPromise) {
   return trackObservationTracker({ observations: [], consumed: false, dependencies }, promise, true);
 }
 
-const workflowPromise = new Proxy(Promise, {
-  construct(target, [executor]) {
+// Hosts that freeze built-ins make Promise.all and friends non-writable and non-configurable, and a
+// Proxy over Promise itself may not return wrappers for those. Proxy a plain constructor instead.
+const workflowPromiseTarget = function Promise() {};
+workflowPromiseTarget.prototype = Promise.prototype;
+const workflowPromise = new Proxy(workflowPromiseTarget, {
+  apply() {
+    throw new TypeError("Promise constructor cannot be invoked without 'new'");
+  },
+  construct(_proxyTarget, [executor]) {
+    const target = Promise;
     if (typeof executor !== "function") return new target(executor);
     const tracker = { observations: [], consumed: false };
     const promise = new target((resolve, reject) => {
@@ -264,7 +272,8 @@ const workflowPromise = new Proxy(Promise, {
     });
     return trackObservationTracker(tracker, promise, true);
   },
-  get(target, prop) {
+  get(_proxyTarget, prop) {
+    const target = Promise;
     if (prop === "all") return (items) => trackPromiseCombinator(items, (values) => target.all(values));
     if (prop === "allSettled") return (items) => trackPromiseCombinator(items, (values) => target.allSettled(values));
     if (prop === "race") return (items) => trackPromiseCombinator(items, (values) => target.race(values));
