@@ -2703,6 +2703,8 @@ export interface ExtensionConfig {
 	asyncWidgetLayout?: AsyncWidgetLayout;
 	/** Report subagent run state to the terminal with OSC 7501. Defaults to true. */
 	programStatus?: boolean;
+	/** Add a short `active_subagents` system prompt section listing this session's active background runs. Defaults to false. */
+	activeRunsPrompt?: boolean;
 	/** Exact provider/model candidates mapped to operator-declared equivalent response IDs. Empty arrays add no accepted IDs. */
 	modelResponseAliases?: Record<string, string[]>;
 	/** Named argv prefixes for background runners; agents select one with `launcher: <name>`. User config only. */

@@ -193,6 +193,9 @@ function validateConfig(config: Record<string, unknown>): void {
 	if (config.programStatus !== undefined && typeof config.programStatus !== "boolean") {
 		throw new Error("config.programStatus must be a boolean");
 	}
+	if (config.activeRunsPrompt !== undefined && typeof config.activeRunsPrompt !== "boolean") {
+		throw new Error("config.activeRunsPrompt must be a boolean");
+	}
 	if (config.toolActivation !== undefined && config.toolActivation !== "auto" && config.toolActivation !== "dynamic" && config.toolActivation !== "eager") {
 		throw new Error('config.toolActivation must be "auto", "dynamic", or "eager"');
 	}

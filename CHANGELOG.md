@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- A parent agent learned about its background subagents only from completion notices or a `status` call, so a few turns after launching one it could forget it was running and launch the same work again or report that nothing was in flight. The new `activeRunsPrompt` config key, off by default, adds a short `active_subagents` system prompt section while this session has queued or running background runs. It lists each run's id, agents, mode, chain step, and task, and drops away when the last run finishes. Thanks to [@advaitpaliwal](https://github.com/advaitpaliwal) for the request. ([#2831](https://github.com/nicobailon/pi-subagents/issues/2831))
+
 ### Changed
 
 - Pressing `Esc` stopped the parent, but a background subagent that finished or asked for input a moment later started a new parent turn, so the agent the user had just stopped kept working. After `Esc`, background results and requests are now added to the session without starting a turn, and the parent sees them with the user's next prompt. A completion notice added this way tells the parent not to resume the stopped task unless the user asks. Background runs keep running, and the TUI shows how many are still active and points to `/subagents-stop`.
