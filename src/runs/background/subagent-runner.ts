@@ -16,7 +16,7 @@ import { closeSteerInbox, closeStopInbox, consumeInterruptRequest, consumeSteerR
 import { appendJsonl as appendRawJsonl, formatOutputArtifactContent, getArtifactPaths, writeArtifact, writeMetadata } from "../../shared/artifacts.ts";
 import { PI_CODING_AGENT_PACKAGE, resolveInstalledPiPackageRoot } from "../shared/pi-spawn.ts";
 import { preflightLaunchCwd } from "../shared/launch-cwd.ts";
-import { captureSingleOutputSnapshot, extractChildWrittenOutput, finalizeSingleOutput, formatSavedOutputReference, injectSingleOutputInstruction, resolveSingleOutput, type SingleOutputSnapshot } from "../shared/single-output.ts";
+import { captureSingleOutputSnapshot, extractChildWrittenOutput, finalizeSingleOutput, formatSavedOutputReference, injectSingleOutputInstruction, isSettlementFatalOutputError, resolveSingleOutput, type SingleOutputSnapshot } from "../shared/single-output.ts";
 import { timedOutRunSummary } from "../shared/partial-output.ts";
 import { runSetupCommand } from "../shared/worktree-setup-command.ts";
 import {
@@ -867,14 +867,23 @@ export async function runSingleStepInner(
 	transcriptWriter?.writeInitialUserMessage(`${PROMPT_REDACTED}; live Prompt Audit only.`);
 
 	// External CLI and external job runs settle their output the same way; only their runner metadata differs.
-	const settleExternalOutput = (external: { output: string; exitCode: number | null; error?: string }, outputSnapshot: SingleOutputSnapshot | undefined, runnerMetadata: object) => {
+	const settleExternalOutput = (
+		external: { output: string; exitCode: number | null; error?: string },
+		outputSnapshot: SingleOutputSnapshot | undefined,
+		runnerMetadata: {
+			runner?: ExternalCliRunnerStatus | ExternalJobRunnerStatus;
+			externalProcess?: ExternalProcessStatus;
+			externalJob?: ExternalJobStatus;
+		},
+	) => {
 		try { fs.writeFileSync(ctx.outputFile, external.output, "utf-8"); } catch { /* Observability output is best-effort. */ }
 		const resolvedOutput = step.outputPath && external.exitCode === 0
 			? resolveSingleOutput(step.outputPath, external.output, outputSnapshot, step.outputClaimPath)
 			: { fullOutput: external.output };
 		const outputReference = resolvedOutput.savedPath ? formatSavedOutputReference(resolvedOutput.savedPath, resolvedOutput.fullOutput) : undefined;
-		const exitCode = resolvedOutput.fatalError ? 1 : external.exitCode;
-		const error = resolvedOutput.fatalError && resolvedOutput.saveError
+		const settlementFatalOutputError = isSettlementFatalOutputError(resolvedOutput, step.outputMode);
+		const exitCode = settlementFatalOutputError ? 1 : external.exitCode;
+		const error = settlementFatalOutputError && resolvedOutput.saveError
 			? external.error ? `${external.error}\n${resolvedOutput.saveError}` : resolvedOutput.saveError
 			: external.error;
 		const finalizedOutput = finalizeSingleOutput(omitUndefinedProperties({
@@ -890,8 +899,8 @@ export async function runSingleStepInner(
 			? persistStepArtifacts({
 				artifactPaths,
 				artifactConfig: ctx.artifactConfig,
-				output: formatOutputArtifactContent(omitUndefinedProperties({ output: resolvedOutput.fullOutput, error: external.error, metadataPath: ctx.artifactConfig?.includeMetadata === false ? undefined : artifactPaths.metadataPath })),
-				metadata: { runId: ctx.id, parentSessionId: step.parentSessionId, agent: step.agent, task: PROMPT_REDACTED, ...runnerMetadata, exitCode: external.exitCode, error: external.error, timestamp: Date.now() },
+				output: formatOutputArtifactContent(omitUndefinedProperties({ output: resolvedOutput.fullOutput, error: error, metadataPath: ctx.artifactConfig?.includeMetadata === false ? undefined : artifactPaths.metadataPath })),
+				metadata: { runId: ctx.id, parentSessionId: step.parentSessionId, agent: step.agent, task: PROMPT_REDACTED, ...runnerMetadata, exitCode: exitCode, error: error, timestamp: Date.now() },
 			})
 			: {};
 		return {
@@ -941,7 +950,7 @@ export async function runSingleStepInner(
 				const outputReference = resolvedOutput.savedPath ? formatSavedOutputReference(resolvedOutput.savedPath, resolvedOutput.fullOutput) : undefined;
 				const finalizedOutput = finalizeSingleOutput(omitUndefinedProperties({ fullOutput: resolvedOutput.fullOutput, outputPath: step.outputPath, outputMode: step.outputMode, exitCode: 1, preserveSavedOutput: true, savedPath: resolvedOutput.savedPath, outputReference, saveError: resolvedOutput.saveError }));
 				const artifactErrors = artifactPaths && ctx.artifactConfig?.enabled !== false ? persistStepArtifacts({ artifactPaths, artifactConfig: ctx.artifactConfig, output: formatOutputArtifactContent(omitUndefinedProperties({ output: resolvedOutput.fullOutput, metadataPath: ctx.artifactConfig?.includeMetadata === false ? undefined : artifactPaths.metadataPath })), metadata: { runId: ctx.id, parentSessionId: step.parentSessionId, agent: step.agent, task: PROMPT_REDACTED, runner, placement: session.owner.identity, settlement: settled.settlement, outcome: settled.outcome, timestamp: Date.now() } }) : {};
-				return omitUndefinedProperties({ agent: step.agent, ...(childSessionName ? { sessionName: childSessionName } : {}), context: step.context, output: finalizedOutput.displayOutput, outputState: output.trim() ? "present" : "absent", exitCode: 1, error: resolvedOutput.fatalError ? resolvedOutput.saveError : undefined, timedOut, stopped, artifactPaths, outputSaveError: [resolvedOutput.saveError, artifactErrors.outputSaveError].filter(Boolean).join("\n") || undefined, metadataSaveError: artifactErrors.metadataSaveError, runner, execution: { status: "partial", success: false, exitCode: 1 } });
+				return omitUndefinedProperties({ agent: step.agent, ...(childSessionName ? { sessionName: childSessionName } : {}), context: step.context, output: finalizedOutput.displayOutput, outputState: output.trim() ? "present" : "absent", exitCode: 1, error: isSettlementFatalOutputError(resolvedOutput, step.outputMode) ? resolvedOutput.saveError : undefined, timedOut, stopped, artifactPaths, outputSaveError: [resolvedOutput.saveError, artifactErrors.outputSaveError].filter(Boolean).join("\n") || undefined, metadataSaveError: artifactErrors.metadataSaveError, runner, execution: { status: "partial", success: false, exitCode: 1 } });
 			} catch (error) {
 				// Any post-allocation uncertainty retains the pane; only explicit stop
 				// and successful exact settlement are destructive.
@@ -1294,7 +1303,11 @@ export async function runSingleStepInner(
 		const mutationEvidence = run.nativeMachine ? { source: "tracked-files" as const, trackedOnly: true as const, changedFiles: [], attemptedMutation: remoteGitChanged === true, ...(remoteGitChanged === undefined ? { unavailable: "Remote Git before/after evidence was incomplete." } : {}) } : collectTrackedMutationEvidence(mutationSnapshot, step.cwd ?? ctx.cwd);
 		finalMutationEvidence = mutationEvidence;
 		const mutationAttemptObserved = run.observedMutationAttempt === true || mutationEvidence.attemptedMutation === true;
-		const finalOutputHasPersistableFileContent = run.exitCode === 0 && !run.error && !emptyOutputError && Boolean(stripAcceptanceReport(run.finalOutput).trim());
+		// Validated structured output is persistable file content even when the final text is only
+		// an acceptance-report fence; otherwise the required-output precheck forces exitCode 1 before
+		// resolveSingleOutput can publish the canonical JSON into the bound file-only path.
+		const finalOutputHasPersistableFileContent = run.exitCode === 0 && !run.error && !emptyOutputError
+			&& (Boolean(stripAcceptanceReport(run.finalOutput).trim()) || validatedStructuredOutput);
 		const requiredOutput = step.outputMode === "file-only" && step.outputPath
 			? { kind: "file-only" as const, path: step.outputPath, missing: !fs.existsSync(step.outputPath) && !finalOutputHasPersistableFileContent }
 			: effectiveStructuredOutput
@@ -1377,7 +1390,7 @@ export async function runSingleStepInner(
 	const resolvedOutput = step.outputPath && finalResult?.exitCode === 0
 		? resolveSingleOutput(step.outputPath, structuredText ?? replyOutput, finalOutputSnapshot, step.outputClaimPath)
 		: { fullOutput: replyOutput };
-	if (resolvedOutput.fatalError) {
+	if (isSettlementFatalOutputError(resolvedOutput, step.outputMode)) {
 		if (finalResult) {
 			finalResult.exitCode = 1;
 			finalResult.error = finalResult.error ? `${finalResult.error}\n${resolvedOutput.saveError}` : resolvedOutput.saveError;

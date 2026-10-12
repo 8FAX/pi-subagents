@@ -74,6 +74,16 @@ describe("acceptance gates", () => {
 		assert.equal(resolveEffectiveAcceptance({ agentName: "worker", acceptanceRole: worker?.acceptanceRole }).level, "checked");
 	});
 
+	it("declares the builtin reviewer profile read-only for acceptance", () => {
+		const builtins = discoverAgentsAll(tempRepo()).builtin;
+		const reviewer = builtins.find((agent) => agent.name === "reviewer");
+		assert.equal(reviewer?.acceptanceRole, "read-only");
+		const inferred = resolveEffectiveAcceptance({ agentName: "reviewer", acceptanceRole: reviewer?.acceptanceRole, task: "Review the diff and return findings only.", async: true });
+		assert.equal(inferred.level, "none");
+		const explicit = resolveEffectiveAcceptance({ agentName: "reviewer", acceptanceRole: reviewer?.acceptanceRole, task: "Review the diff.", async: true, explicit: { level: "checked" } });
+		assert.equal(explicit.level, "checked", "explicit operator acceptance still strengthens the read-only reviewer");
+	});
+
 	it("infers evidence levels and review requirements from declared roles", () => {
 		assert.equal(resolveEffectiveAcceptance({ agentName: "worker", acceptanceRole: "read-only", task: "Implement the fix", mode: "single" }).level, "none");
 		assert.equal(resolveEffectiveAcceptance({ agentName: "reviewer", acceptanceRole: "writer", task: "Review-only. Do not edit.", mode: "single" }).level, "checked");
