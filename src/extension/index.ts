@@ -714,15 +714,16 @@ export default function registerSubagentExtension(pi: ExtensionAPI): void {
 
 	pi.on("before_agent_start", async (event, ctx) => {
 		await waitForAdvertisement();
-		if (!event.systemPromptOptions.selectedTools.includes("subagent")) return;
 		const sessionId = state.currentSessionId ?? resolveCurrentSessionId(ctx.sessionManager);
 		// Structured sections let Pi append a transcript delta instead of replacing the
 		// cached system prompt. Set the section on every turn it applies: Pi rebuilds the
 		// options each turn, and an unset turn records a removal.
-		const catalog = buildAdvertisedAgentCatalog(advertisedAgents, resolveCurrentSubagentCapabilityCeiling(sessionId), recordedPromptSection(pi, "advertised_subagents"));
-		if (catalog) event.systemPromptOptions.sections.advertised_subagents = catalog;
+		// Active runs are listed even when only subagents_enable is selected, e.g. runs re-adopted after a resume.
 		const activeRuns = config.activeRunsPrompt === true ? buildActiveRunsSection(state.asyncJobs.values(), sessionId) : undefined;
 		if (activeRuns) event.systemPromptOptions.sections.active_subagents = activeRuns;
+		if (!event.systemPromptOptions.selectedTools.includes("subagent")) return;
+		const catalog = buildAdvertisedAgentCatalog(advertisedAgents, resolveCurrentSubagentCapabilityCeiling(sessionId), recordedPromptSection(pi, "advertised_subagents"));
+		if (catalog) event.systemPromptOptions.sections.advertised_subagents = catalog;
 	});
 
 	registerWaitTool(pi, state, waitToolConfig.enabled, waitSubscriptionManager, waitToolConfig.defaultTimeoutMs, undefined, supervisorChannel.hasPendingRequests);

@@ -4,7 +4,7 @@
 
 ### Added
 
-- A parent agent learned about its background subagents only from completion notices or a `status` call, so a few turns after launching one it could forget it was running and launch the same work again or report that nothing was in flight. The new `activeRunsPrompt` config key, off by default, adds a short `active_subagents` system prompt section while this session has queued or running background runs. It lists each run's id, agents, mode, chain step, and task, and drops away when the last run finishes. Thanks to [@advaitpaliwal](https://github.com/advaitpaliwal) for the request. ([#2831](https://github.com/nicobailon/pi-subagents/issues/2831))
+- A parent agent learned about its background subagents only from completion notices or a `status` call, so a few turns after launching one it could forget it was running and launch the same work again or report that nothing was in flight. The new `activeRunsPrompt` config key, off by default, adds a short `active_subagents` system prompt section while this session has queued or running background runs. It lists each run's id, agents, mode, and chain step, and drops away when the last run finishes. Thanks to [@advaitpaliwal](https://github.com/advaitpaliwal) for the request. ([#2831](https://github.com/nicobailon/pi-subagents/issues/2831))
 
 ### Changed
 

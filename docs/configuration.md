@@ -359,7 +359,7 @@ Each record's `title` is the agent names or workflow key, and its `msg` is the c
 { "activeRunsPrompt": true }
 ```
 
-Adds a short `active_subagents` section to the parent's system prompt while this session has queued or running background runs, so the model remembers work it launched earlier instead of starting it again. Off by default. Each run gets one line, for example `- <run id> researcher (single): Read docs/api.md`, built from in-memory run state with no file reads; at most 10 runs are listed, then a `+N more` line. The line holds only the run id, agents, mode, chain step, and task, so the section changes only when a run starts, finishes, or moves to another chain step. Nothing is added when no run is active.
+Adds a short `active_subagents` section to the parent's system prompt while this session has queued or running background runs, so the model remembers work it launched earlier instead of starting it again. Off by default. Each run gets one line, for example `- <run id> researcher (chain, step 2/3)`, built from in-memory run state with no file reads; at most 10 runs are listed, then a `+N more` line. The line holds only the run id, agents, mode, and chain step (task text is redacted at launch), so the section changes only when a run starts, finishes, or moves to another chain step. Pi sends such a change as a mid-conversation system update where the provider supports it; on other providers it rebuilds the system prompt, so the prompt cache starts over on those turns. Nothing is added when no run is active.
 
 ## `waitTool`
 
