@@ -17,7 +17,7 @@ Launch children in the background (`async` follows `asyncByDefault`, normally tr
 Child-safety boundaries are enforced at runtime:
 
 - Child sessions do not receive the bundled `pi-subagents` skill.
-- Forked child context filtering removes parent-only subagent artifacts (including old hidden orchestration-instruction messages, slash/status/control messages, and prior parent `subagent` tool-call/tool-result history) while preserving ordinary prose and unrelated tool calls/results.
+- Child context filtering removes parent-only subagent artifacts (hidden orchestration-instruction messages, slash/status/control messages, and `subagent` tool-call/tool-result history) while preserving ordinary prose and unrelated tool calls/results. A forked child sends the history it inherited exactly as the parent sent it, so its first request can reuse the parent's prompt cache; it still cannot run `subagent`.
 - By default, children do not register the `subagent` tool and receive boundary instructions that they are not the parent orchestrator and must not propose or run subagents.
 - The explicit exception is an agent whose resolved builtin `tools` includes `subagent`; that child gets a child-safe `subagent` tool for the fanout work the parent assigned, still bounded by `maxSubagentDepth`.
 
@@ -494,7 +494,7 @@ Inspect the handoff before reconciliation; cleanup still requires fresh checks.
 
 ## Supervisor coordination (child asks parent)
 
-Child agents can talk back to the parent Pi session without installing `pi-intercom`. `pi-subagents` provides the child-facing `contact_supervisor` tool and the parent-facing `subagent_supervisor({ action: "reply" })` path natively. Generic `intercom` remains available only when an explicitly loaded external provider supplies it.
+Child agents can talk back to the parent Pi session without installing `pi-intercom`. `pi-subagents` provides the child-facing `contact_supervisor` tool and the parent-facing `subagent_supervisor({ action: "reply" })` path natively. A session that has `subagent` also declares `contact_supervisor`, so a forked child's tools match its parent's; there it only returns an error saying the session has no supervisor. Generic `intercom` remains available only when an explicitly loaded external provider supplies it.
 
 Use it for work where the child might need a decision instead of guessing:
 

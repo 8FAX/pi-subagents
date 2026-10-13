@@ -287,6 +287,60 @@ const PROMPT_CACHE_KEY_APIS = new Set([
 	"openai-responses",
 ]);
 
+type DeclaredTool = { name: string };
+type ToolDeclaringMessage = { role: string; timestamp?: number; toolsAdded?: readonly DeclaredTool[]; toolsRemoved?: readonly DeclaredTool[] };
+
+const isSystemMessage = <T extends { role: string }>(message: T): message is T & ToolDeclaringMessage => message.role === "system";
+const writtenSince = (message: ToolDeclaringMessage, forkedAt: number) => typeof message.timestamp === "number" && message.timestamp >= forkedAt;
+
+/** The tools the system messages older than `forkedAt` declare, replayed in order as Pi does. */
+export function toolsDeclaredBefore(messages: readonly { role: string }[], forkedAt: number): DeclaredTool[] {
+	const tools = new Map<string, DeclaredTool>();
+	for (const message of messages) {
+		if (!isSystemMessage(message) || writtenSince(message, forkedAt)) continue;
+		for (const tool of message.toolsRemoved ?? []) tools.delete(tool.name);
+		for (const tool of message.toolsAdded ?? []) tools.set(tool.name, tool);
+	}
+	return [...tools.values()];
+}
+
+/**
+ * A forked child starts with its parent's history, whose system messages declare the parent's
+ * tools, and its own first system message removes the tools this child may not use. Providers
+ * cache the tool list before everything else, so that removal made every request of a fork miss
+ * the parent's prompt cache. Requests now keep declaring every `inherited` tool, in its order,
+ * before the tools the child adds: the child's own system messages (written at or after
+ * `forkedAt`) lose their removals of those tools. When a `context` handler changed the
+ * conversation, Pi sends one leading system message holding the current tools instead, and that
+ * message's tools are set to the same list. The child still does not register the tools it may
+ * not use, so a call to one gets Pi's "not found" error and runs nothing. Only what a request
+ * sends changes; the session keeps Pi's own record. Once a compaction in the child left no
+ * inherited message in the request, there is no parent prefix to match, and nothing changes.
+ */
+export function keepInheritedToolDeclarations<T extends { role: string }>(messages: T[], inherited: readonly DeclaredTool[], forkedAt: number): T[] {
+	const older = (message: T & { timestamp?: unknown }) => typeof message.timestamp === "number" && message.timestamp < forkedAt;
+	if (inherited.length === 0 || !messages.some(older)) return messages;
+	const names = new Set(inherited.map((tool) => tool.name));
+	let changed = false;
+	let next = messages.map((message) => {
+		if (!isSystemMessage(message) || !writtenSince(message, forkedAt) || !message.toolsRemoved?.some((tool) => names.has(tool.name))) return message;
+		changed = true;
+		const { toolsRemoved, ...rest } = message;
+		const kept = toolsRemoved.filter((tool) => !names.has(tool.name));
+		return (kept.length > 0 ? { ...rest, toolsRemoved: kept } : rest) as T;
+	});
+	const declared = new Map(toolsDeclaredBefore(next, Number.POSITIVE_INFINITY).map((tool) => [tool.name, tool]));
+	const wanted = [...inherited.map((tool) => declared.get(tool.name) ?? tool), ...[...declared.values()].filter((tool) => !names.has(tool.name))];
+	const order = [...declared.keys()];
+	const head = next[0];
+	if (head && isSystemMessage(head) && wanted.some((tool, index) => order[index] !== tool.name)) {
+		changed = true;
+		const { toolsRemoved: _removed, ...rest } = head;
+		next = [{ ...rest, toolsAdded: wanted } as T, ...next.slice(1)];
+	}
+	return changed ? next : messages;
+}
+
 export function rewriteForkCacheProviderRequest(event: BeforeProviderRequestEvent, ctx: Pick<ExtensionContext, "model"> | undefined, forkCacheKey: string | undefined): unknown {
 	const key = forkCacheKey?.trim();
 	if (!key || !PROMPT_CACHE_KEY_APIS.has(ctx?.model?.api ?? "")) return undefined;
@@ -337,17 +391,27 @@ function stripAssistantSubagentToolCallBlocks(message: unknown): unknown | undef
 	return { ...m, content: filteredContent };
 }
 
-export function stripParentOnlySubagentMessages(messages: unknown[], options: { sanitizeToolIds?: boolean; preserveBoundedCompositeToolIds?: boolean; preserveFanoutToolHistory?: boolean } = {}): unknown[] {
+/**
+ * `inheritedBefore`, set in a forked child to the fork's time, keeps the history the child
+ * inherited as the parent sent it, so its requests can reuse the parent's prompt cache; only tool
+ * ids are still made portable there. The child cannot run `subagent` either way.
+ */
+export function stripParentOnlySubagentMessages(messages: unknown[], options: { sanitizeToolIds?: boolean; preserveBoundedCompositeToolIds?: boolean; preserveFanoutToolHistory?: boolean; inheritedBefore?: number } = {}): unknown[] {
 	const preserveCurrentFanoutToolHistory = options.preserveFanoutToolHistory === true;
 	const sanitizeToolIds = options.sanitizeToolIds ?? true;
+	const inheritedBefore = options.inheritedBefore;
+	// Every message Pi projects from a session has a timestamp, so one without it was added at
+	// request time and is treated as the child's own.
+	const inherited = (message: unknown) => inheritedBefore !== undefined && typeof (message as { timestamp?: unknown })?.timestamp === "number" && (message as { timestamp: number }).timestamp < inheritedBefore;
 	let changed = false;
 	const filtered: unknown[] = [];
 	for (const message of messages) {
-		if (isParentOnlySubagentMessage(message) || (!preserveCurrentFanoutToolHistory && isSubagentToolResultMessage(message))) {
+		const keep = inherited(message);
+		if (!keep && (isParentOnlySubagentMessage(message) || (!preserveCurrentFanoutToolHistory && isSubagentToolResultMessage(message)))) {
 			changed = true;
 			continue;
 		}
-		const stripped = preserveCurrentFanoutToolHistory ? message : stripAssistantSubagentToolCallBlocks(message);
+		const stripped = keep || preserveCurrentFanoutToolHistory ? message : stripAssistantSubagentToolCallBlocks(message);
 		if (stripped === undefined) {
 			changed = true;
 			continue;
@@ -555,12 +619,32 @@ export default function registerSubagentPromptRuntime(pi: ExtensionAPI, config?:
 
 	onRuntimeEvent("before_provider_request", (event: unknown, ctx?: ExtensionContext) => rewriteForkCacheProviderRequest(event as BeforeProviderRequestEvent, ctx, config.forkCacheKey));
 
+	// A fork launch sets forkCacheKey. Pi writes the fork's session header when it copies the
+	// parent's branch, so every inherited message is older and every message this child writes,
+	// also after a resume, is not.
+	// The inherited declarations are read from the session once: a request may hold only Pi's
+	// collapsed leading message, and what came before the fork never changes.
+	let inheritedTools: { session: string; forkedAt: number; tools: ReturnType<typeof toolsDeclaredBefore> } | undefined;
+	if (config.forkCacheKey) onRuntimeEvent("context_with_system", (event: unknown, ctx?: ExtensionContext) => {
+		if (!event || typeof event !== "object" || !("messages" in event) || !Array.isArray(event.messages)) return undefined;
+		const header = ctx?.sessionManager?.getHeader();
+		if (!header) return undefined;
+		if (inheritedTools?.session !== header.id) {
+			const forkedAt = Date.parse(header.timestamp);
+			inheritedTools = { session: header.id, forkedAt, tools: Number.isFinite(forkedAt) ? toolsDeclaredBefore(ctx!.sessionManager.buildSessionProjection().messages, forkedAt) : [] };
+		}
+		const messages = keepInheritedToolDeclarations(event.messages as Array<{ role: string }>, inheritedTools.tools, inheritedTools.forkedAt);
+		return messages === event.messages ? undefined : { messages };
+	});
+
 	onRuntimeEvent("context", (event: unknown, ctx?: ExtensionContext) => {
 		if (!event || typeof event !== "object" || !("messages" in event) || !Array.isArray(event.messages)) return undefined;
+		const forkedAt = config.forkCacheKey ? Date.parse(ctx?.sessionManager?.getHeader()?.timestamp ?? "") : Number.NaN;
 		const messages = stripParentOnlySubagentMessages(event.messages, {
 			sanitizeToolIds: !COMPOSITE_TOOL_ID_APIS.has(ctx?.model?.api ?? ""),
 			preserveBoundedCompositeToolIds: ctx?.model?.api === "openai-codex-responses",
 			preserveFanoutToolHistory: config.fanoutChild,
+			...(Number.isFinite(forkedAt) ? { inheritedBefore: forkedAt } : {}),
 		});
 		if (messages === event.messages) return undefined;
 		return { messages };
