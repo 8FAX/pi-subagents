@@ -190,7 +190,7 @@ describe("agent management config parsing", () => {
 		assert.equal(JSON.stringify(capabilities).includes("SYSTEM_PROMPT_SENTINEL"), false);
 	});
 
-	it("reports bundled reviewer supervisor contact and read-only acceptance role in capabilities", () => {
+	it("reports bundled reviewer supervisor contact without mutation tools in capabilities", () => {
 		const listed = handleManagementAction("list", { agentScope: "project", capabilities: true }, {
 			cwd: tempDir,
 			modelRegistry: { getAvailable: () => [] },
@@ -203,9 +203,7 @@ describe("agent management config parsing", () => {
 		assert.ok(reviewer, "reviewer builtin should be present in capability output");
 		assert.deepEqual(reviewer.tools.names, ["read", "grep", "find", "ls", "watchdog_diff", "contact_supervisor"]);
 		assert.match(readText(listed), /Tools: read, grep, find, ls, watchdog_diff, contact_supervisor/);
-		assert.match(readText(listed), /Acceptance role: read-only/);
-		// The read-only reviewer declares its acceptance role without a default acceptance policy.
-		assert.deepEqual(reviewer.acceptance, { role: "read-only" });
+		assert.equal("acceptance" in reviewer, false);
 	});
 
 	it("reports bare and disabled acceptance declarations in capabilities", () => {

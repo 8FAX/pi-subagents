@@ -362,4 +362,3 @@ describe("isSettlementFatalOutputError", () => {
 		assert.equal(isSettlementFatalOutputError({ savedPath: "/tmp/out.md" }, "inline"), false);
 	});
 });
-

@@ -2,7 +2,6 @@
 name: reviewer
 description: Versatile review specialist for code diffs, plans, proposed solutions, codebase health, and PR/issue validation
 tools: read, grep, find, ls, watchdog_diff, contact_supervisor
-acceptanceRole: read-only
 thinking: high
 systemPromptMode: replace
 inheritProjectContext: true
